@@ -74,7 +74,7 @@
   let data = clone(demo), storageAvailable = true, initialWarning = '';
   try { const stored = localStorage.getItem(STORAGE_KEY); if (stored) data = validate(JSON.parse(stored)); } catch { initialWarning = 'Не удалось прочитать сохранённые данные. Показана демонстрация; сохранённая копия не перезаписана.'; }
   let year = 1946, selected = 'all', activeTab = 'map', playback = null, pendingImport = null, toastTimer;
-  let view = { x: 750, y: 95, w: 430, h: 250 }, geography = null;
+  let view = { x: 750, y: 95, w: 430, h: 250 };
   const person = personId => data.people.find(p => p.id === personId);
   const color = personId => colors[Math.max(0, data.people.findIndex(p => p.id === personId)) % colors.length];
   const eventsFor = personId => data.events.filter(e => e.personId === personId).sort((a, b) => a.year - b.year);
@@ -194,9 +194,7 @@
   $('#family-map').addEventListener('keydown',e=>{if(e.target!==e.currentTarget)return;const delta=view.w*.08;if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','=','-'].includes(e.key)){e.preventDefault();if(e.key==='ArrowLeft')view.x-=delta;if(e.key==='ArrowRight')view.x+=delta;if(e.key==='ArrowUp')view.y-=delta;if(e.key==='ArrowDown')view.y+=delta;if(e.key==='+'||e.key==='=')zoom(.75);else if(e.key==='-')zoom(1.33);else drawMap();}});
   $('#family-map').addEventListener('wheel',e=>{if(!e.ctrlKey)return;e.preventDefault();zoom(e.deltaY>0?1.12:.89);},{passive:false});
   window.addEventListener('resize',()=>{if(activeTab==='map')drawMap();});
-  async function loadMap() {
-    try { const response=await fetch('assets/world-countries.geojson');if(!response.ok)throw Error('map');geography=await response.json();const polygonPath=rings=>rings.map(ring=>ring.map((point,i)=>`${i?'L':'M'}${project(point[0],point[1]).join(',')}`).join('')+'Z').join('');$('#land-layer').innerHTML=geography.features.map(f=>{const g=f.geometry;return `<path d="${g.type==='Polygon'?polygonPath(g.coordinates):g.type==='MultiPolygon'?g.coordinates.map(polygonPath).join(''):''}"/>`;}).join(''); }
-    catch { $('#map-error').hidden=false;$('#map-error').textContent='Географическая подложка недоступна. Точки и маршруты работают. Запустите страницу через локальный HTTP-сервер.'; }
+  function initializeGrid() {
     const grid=[];for(let lon=-180;lon<=180;lon+=15){const[x]=project(lon,0);grid.push(`M${x} 0V720`);}for(let lat=-90;lat<=90;lat+=15){const[,y]=project(0,lat);grid.push(`M0 ${y}H1440`);}$('#grid-layer').innerHTML=`<path d="${grid.join('')}"/>`;
   }
   function fillEditor() {
@@ -222,6 +220,6 @@
   function replaceFamily(next){if(!window.confirm('Заменить текущую семью? Несохранённые в JSON сведения будут удалены из этого браузера.'))return;stopPlayback();selected='all';pendingImport=null;$('#import-preview').hidden=true;$('#import-file').value='';commit(next,'Семья заменена.',true);}
   $('#new-family').addEventListener('click',()=>replaceFamily({version:1,family:{title:'История моей семьи',intro:'',demo:false},people:[],events:[]}));
   $('#restore-demo').addEventListener('click',()=>replaceFamily(clone(demo)));
-  renderAll({fit:true});loadMap();
+  renderAll({fit:true});initializeGrid();
   if(initialWarning){$('#save-state').textContent=initialWarning;toast(initialWarning);}else if(!storageAvailable)$('#save-state').textContent='Используйте экспорт JSON для сохранения';
 })();
