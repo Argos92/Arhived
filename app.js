@@ -25,7 +25,7 @@ dialog.addEventListener('click', event => { if (event.target === dialog) { const
 document.querySelector('form').addEventListener('submit', event => {
   event.preventDefault();
   const data = new FormData(event.target);
-  const text = `АРХИВЕД — анкета для обзорного поиска\n\nИмя: ${data.get('name').trim()}\n\nИзвестные сведения о семье:\n${data.get('history').trim()}\n\nПредложение на сайте: 3 870 ₽ вместо 12 000 ₽. Условия и сроки требуют согласования.\nАнкета сохранена локально и не отправлена.\n`;
+  const text = `АРХИВЕД — анкета для обзорного поиска\n\nИмя: ${data.get('name').trim()}\n\nИзвестные сведения о семье:\n${data.get('history').trim()}\n\nПредложение на сайте: 5 760 ₽ вместо 12 000 ₽. Условия и сроки требуют согласования.\nАнкета сохранена локально и не отправлена.\n`;
   const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
   const link = document.createElement('a');
   link.href = url; link.download = 'arhived-anketa.txt'; link.click();
