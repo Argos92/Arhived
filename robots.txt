@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /client/
+Disallow: /account/
+Disallow: /api/private/
+
+Sitemap: https://arhived.ru/sitemap.xml
