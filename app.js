@@ -29,7 +29,6 @@ const leadConfig = window.ARHIVED_LEAD_FORM;
 const fieldNames = ['name', 'contacts', 'research'];
 const configured = leadConfig && fieldNames.every(name => /^entry\.\d+$/.test(leadConfig.fields?.[name])) && new Set(Object.values(leadConfig.fields)).size === 3;
 let submitting = false;
-let submitted = false;
 if (!configured) {
   submitButton.disabled = true;
   leadStatus.textContent = 'Приём заявок временно недоступен. Пожалуйста, попробуйте позже.';
@@ -39,7 +38,7 @@ leadForm.addEventListener('input', event => {
 });
 leadForm.addEventListener('submit', async event => {
   event.preventDefault();
-  if (!configured || submitting || submitted) return;
+  if (!configured || submitting) return;
   const values = {};
   for (const name of fieldNames) {
     const field = leadForm.elements[name];
@@ -66,8 +65,7 @@ leadForm.addEventListener('submit', async event => {
       method: 'POST', mode: 'no-cors', credentials: 'omit',
       body, signal: controller.signal, referrerPolicy: 'no-referrer'
     });
-    submitted = true;
-    submitButton.textContent = 'Запрос отправлен';
+    submitButton.textContent = 'Отправить заявку';
     leadStatus.textContent = 'Запрос отправлен, но получение заявки ещё не подтверждено. Ожидайте обратной связи.';
     leadStatus.className = 'submission-pending';
   } catch (error) {
@@ -80,6 +78,7 @@ leadForm.addEventListener('submit', async event => {
   } finally {
     clearTimeout(timeout);
     submitting = false;
+    submitButton.disabled = false;
     leadForm.removeAttribute('aria-busy');
   }
 });
