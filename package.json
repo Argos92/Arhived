@@ -3,6 +3,10 @@
   "private": true,
   "version": "1.0.0",
   "description": "Static genealogy landing and interactive family history prototype",
-  "scripts": { "test": "node tests/family.smoke.cjs" },
-  "devDependencies": { "playwright": "1.56.1" }
+  "scripts": {
+    "test": "node tests/family.smoke.cjs && node tests/lead-form.smoke.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
 }

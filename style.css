@@ -7,3 +7,5 @@
 .offer-actions{display:flex;flex-wrap:wrap;gap:10px}.offer-details .button-outline{background:transparent;color:var(--copper);box-shadow:none;border-color:#c49774}.offer-details .button-outline:hover{background:#efe0c855}@media(max-width:520px){.offer-actions{flex-direction:column}.offer-actions .button{width:100%}}
 
 button.header-link{cursor:pointer}
+
+#lead-form button:disabled{opacity:.65;cursor:default;transform:none}#form-status.submission-error{color:#9a3e28}#form-status.submission-pending{color:#805f37}#lead-form[aria-busy="true"] input,#lead-form[aria-busy="true"] textarea{opacity:.7}
