@@ -1,10 +1,12 @@
 'use strict';
 (() => {
   const $ = selector => document.querySelector(selector);
-  const STORAGE_KEY = 'arhived-family-v1';
+  const embedded = document.querySelector('#family-data');
+  const pageSeed = embedded ? JSON.parse(embedded.textContent) : null;
+  const STORAGE_KEY = embedded ? `arhived-case-${location.pathname}` : 'arhived-family-v1';
   const colors = ['#a65d39', '#63765d', '#9d7841', '#717e91', '#986e76', '#6f8881'];
-  const statusLabels = { documented: 'По документу', hypothesis: 'Гипотеза', demo: 'Вымышленный пример' };
-  const typeLabels = { birth: 'Рождение', residence: 'Проживание', move: 'Переезд', historical: 'Историческое событие' };
+  const statusLabels = { documented: 'По документу', family: 'Со слов семьи', hypothesis: 'Гипотеза', demo: 'Вымышленный пример' };
+  const typeLabels = { birth: 'Рождение', residence: 'Проживание', move: 'Переезд', historical: 'Историческое событие', biography: 'Биографическая справка' };
   const demoPeople = [
     { id: 'ivan', name: 'Иван Соколов', birth: 1878, death: 1957, parentIds: [] },
     { id: 'maria', name: 'Мария Соколова', birth: 1881, death: 1964, parentIds: [] },
@@ -45,50 +47,54 @@
   const validYear = value => Number.isInteger(value) && value >= 1000 && value <= 2100;
   function validate(raw) {
     if (!raw || raw.version !== 1 || !raw.family || !Array.isArray(raw.people) || !Array.isArray(raw.events)) throw Error('Нужен JSON формата Архивед, версия 1. Используйте экспорт демонстрации как образец.');
-    if (raw.people.length > 50 || raw.events.length > 500) throw Error('Допустимо до 50 родственников и 500 событий.');
+    if (raw.people.length > 100 || raw.events.length > 500) throw Error('Допустимо до 100 родственников и 500 событий.');
     if (typeof raw.family.demo !== 'boolean') throw Error('Поле family.demo должно быть true или false.');
-    const family = { title: textField(raw.family.title, 'Заголовок', 120), intro: textField(raw.family.intro, 'Вступление', 3000, false), demo: raw.family.demo };
+    const family = { title: textField(raw.family.title, 'Заголовок', 120), intro: textField(raw.family.intro, 'Вступление', 3000, false), demo: raw.family.demo, ...(raw.family.asOfYear && validYear(raw.family.asOfYear) ? { asOfYear: raw.family.asOfYear } : {}) };
     const people = raw.people.map(p => {
-      if (!p || !validYear(p.birth) || (p.death !== null && (!validYear(p.death) || p.death < p.birth))) throw Error('Проверьте годы жизни родственника. Для неизвестного года смерти используйте null.');
+      if (!p || (p.birth !== null && !validYear(p.birth)) || (p.death !== null && (!validYear(p.death) || (p.birth !== null && p.death < p.birth)))) throw Error('Проверьте годы жизни родственника. Для неизвестного года рождения или смерти используйте null.');
       if (!Array.isArray(p.parentIds) || p.parentIds.length > 2 || p.parentIds.some(x => typeof x !== 'string') || new Set(p.parentIds).size !== p.parentIds.length) throw Error('Укажите до двух разных родителей в parentIds.');
-      return { id: textField(p.id, 'ID человека', 100), name: textField(p.name, 'Имя', 120), birth: p.birth, death: p.death, parentIds: [...p.parentIds] };
+      return { id: textField(p.id, 'ID человека', 100), name: textField(p.name, 'Имя', 120), birth: p.birth, death: p.death, parentIds: [...p.parentIds], status: Object.hasOwn(statusLabels, p.status) ? p.status : 'documented', notes: textField(p.notes ?? '', 'Примечание', 5000, false), group: textField(p.group ?? '', 'Ветвь', 100, false) };
     });
     const personMap = new Map(people.map(p => [p.id, p]));
     if (personMap.size !== people.length) throw Error('ID родственников должны быть уникальными.');
-    people.forEach(p => p.parentIds.forEach(parent => { if (!personMap.has(parent) || parent === p.id) throw Error('Связь ссылается на отсутствующего родственника или на самого себя.'); if (personMap.get(parent).birth >= p.birth) throw Error('Год рождения родителя должен предшествовать году рождения ребёнка.'); }));
+    people.forEach(p => p.parentIds.forEach(parent => { if (!personMap.has(parent) || parent === p.id) throw Error('Связь ссылается на отсутствующего родственника или на самого себя.'); if (personMap.get(parent).birth !== null && p.birth !== null && personMap.get(parent).birth >= p.birth) throw Error('Год рождения родителя должен предшествовать году рождения ребёнка.'); }));
     const visiting = new Set(), visited = new Set();
     function visit(p) { if (visiting.has(p.id)) throw Error('В древе обнаружен цикл родственных связей.'); if (visited.has(p.id)) return; visiting.add(p.id); p.parentIds.forEach(parent => visit(personMap.get(parent))); visiting.delete(p.id); visited.add(p.id); }
     people.forEach(visit);
     const events = raw.events.map(e => {
       if (!e || !personMap.has(e.personId)) throw Error('Событие ссылается на отсутствующего родственника.');
       const p = personMap.get(e.personId);
-      if (!validYear(e.year) || e.year < p.birth || (p.death !== null && e.year > p.death)) throw Error(`Год события должен входить в годы жизни: ${p.name}.`);
-      if (!Number.isFinite(e.lat) || !Number.isFinite(e.lon) || Math.abs(e.lat) > 90 || Math.abs(e.lon) > 180) throw Error('Проверьте координаты: широта −90…90, долгота −180…180.');
+      if (e.year !== null && (!validYear(e.year) || (p.birth !== null && e.year < p.birth) || (p.death !== null && e.year > p.death))) throw Error(`Год события должен входить в годы жизни: ${p.name}.`);
+      if (!(e.lat === null && e.lon === null) && (!Number.isFinite(e.lat) || !Number.isFinite(e.lon) || Math.abs(e.lat) > 90 || Math.abs(e.lon) > 180)) throw Error('Проверьте координаты: широта −90…90, долгота −180…180.');
       if (!Object.hasOwn(typeLabels, e.type) || !Object.hasOwn(statusLabels, e.status)) throw Error('Неизвестный тип или статус события.');
       const url = textField(e.url ?? '', 'URL источника', 2000, false); if (url && !safeURL(url)) throw Error('Для источников допустимы только http:// и https:// ссылки.');
       return { id: textField(e.id, 'ID события', 100), personId: e.personId, year: e.year, lat: e.lat, lon: e.lon, type: e.type, status: e.status, place: textField(e.place, 'Место', 120), note: textField(e.note, 'Описание', 3000), source: textField(e.source, 'Источник', 500), url };
     });
     if (new Set(events.map(e => e.id)).size !== events.length) throw Error('ID событий должны быть уникальными.');
-    return { version: 1, family, people, events };
+    const relations = (raw.relations ?? []).map(r => {
+      if (!personMap.has(r.from) || !personMap.has(r.to) || !['parent-child','spouse','sibling','identity','possible-relative','grandparent-grandchild'].includes(r.type) || !Object.hasOwn(statusLabels,r.status)) throw Error('Проверьте реестр связей.');
+      return { from: r.from, to: r.to, type: r.type, status: r.status, source: textField(r.source, 'Основание связи', 3000) };
+    });
+    return { version: 1, family, people, events, relations };
   }
-  let data = clone(demo), storageAvailable = true, initialWarning = '';
-  try { const stored = localStorage.getItem(STORAGE_KEY); if (stored) data = validate(JSON.parse(stored)); } catch { initialWarning = 'Не удалось прочитать сохранённые данные. Показана демонстрация; сохранённая копия не перезаписана.'; }
-  let year = 1946, selected = 'all', activeTab = 'map', playback = null, pendingImport = null, toastTimer;
+  let data = pageSeed ? validate(pageSeed) : clone(demo), storageAvailable = true, initialWarning = '';
+  try { const stored = localStorage.getItem(STORAGE_KEY); if (stored) data = validate(JSON.parse(stored)); } catch { initialWarning = pageSeed ? 'Локальная копия недоступна. Показаны данные отчёта; сохранённая копия не перезаписана.' : 'Не удалось прочитать сохранённые данные. Показана демонстрация; сохранённая копия не перезаписана.'; }
+  let year = pageSeed?.family.asOfYear || 1946, selected = 'all', activeTab = 'map', playback = null, pendingImport = null, toastTimer;
   let view = { x: 750, y: 95, w: 430, h: 250 };
   const person = personId => data.people.find(p => p.id === personId);
   const color = personId => colors[Math.max(0, data.people.findIndex(p => p.id === personId)) % colors.length];
   const eventsFor = personId => data.events.filter(e => e.personId === personId).sort((a, b) => a.year - b.year);
   const initials = name => name.split(/\s+/).slice(0, 2).map(x => [...x][0] || '').join('');
-  const lifespan = p => `${p.birth} — ${p.death ?? 'год смерти не указан'}`;
-  function bounds() { const years = [...data.people.flatMap(p => [p.birth, ...(p.death === null ? [] : [p.death])]), ...data.events.map(e => e.year)]; return years.length ? [Math.min(...years), Math.max(...years)] : [1900, new Date().getFullYear()]; }
+  const lifespan = p => `${p.birth ?? 'Рождение: неизвестно'} — ${p.death ?? 'смерть: неизвестно'}`;
+  function bounds() { const years = [...data.people.flatMap(p => [p.birth, ...(p.death === null ? [] : [p.death])]), ...data.events.map(e => e.year), ...(data.family.asOfYear ? [data.family.asOfYear] : [])].filter(validYear); return years.length ? [Math.min(...years), Math.max(...years)] : [1900, new Date().getFullYear()]; }
   function toast(message) { $('#toast').textContent = message; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('#toast').textContent = ''; }, 4500); }
   function save() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); storageAvailable = true; $('#save-state').textContent = 'Сохранено в этом браузере'; } catch { storageAvailable = false; $('#save-state').textContent = 'Локальное сохранение недоступно — экспортируйте JSON'; toast('Изменения работают в текущей вкладке. Для сохранения скачайте JSON.'); } }
   function sourceHTML(e) { return `<span class="status-chip ${e.status === 'hypothesis' ? 'hypothesis' : ''}">${statusLabels[e.status]}</span><div class="record-source">${esc(e.source)}${e.url ? `<br><a href="${esc(safeURL(e.url))}" target="_blank" rel="noopener noreferrer">Открыть источник ↗</a>` : ''}</div>`; }
-  function locationAt(p) { if (year < p.birth || (p.death !== null && year > p.death)) return null; return eventsFor(p.id).filter(e => e.type !== 'historical' && e.year <= year).at(-1) || null; }
+  function locationAt(p) { if (year < p.birth || (p.death !== null && year > p.death)) return null; return eventsFor(p.id).filter(e => e.type !== 'historical' && validYear(e.year) && Number.isFinite(e.lat) && Number.isFinite(e.lon) && e.year <= year).at(-1) || null; }
   function renderHeader() {
     document.title = `${data.family.title} — Архивед`; $('#family-title').textContent = data.family.title; $('#monogram').textContent = [...data.family.title.replace(/^История семьи\s*/i, '').trim()][0] || 'А';
     const [min, max] = bounds(); $('#family-subtitle').textContent = `${data.people.length} человек · ${data.events.length} записей · ${min}–${max}`;
-    $('#data-notice p').textContent = data.family.demo ? 'Демонстрационная семья. Имена, события и архивные ссылки вымышлены.' : 'Индивидуальная семейная история. Сведения и источники внесены пользователем; независимая проверка не выполнялась.';
+    $('#data-notice p').textContent = pageSeed ? 'Частный отчёт на 06.11.2026. Статусы — по отчёту и уточнению владельца; оригиналы отдельно не перепроверялись.' : data.family.demo ? 'Демонстрационная семья. Имена, события и архивные ссылки вымышлены.' : 'Индивидуальная семейная история. Сведения и источники внесены пользователем; независимая проверка не выполнялась.';
     $('#person-filter').innerHTML = '<option value="all">Вся семья</option>' + data.people.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join(''); $('#person-filter').value = selected;
     for (const selector of ['#year-range', '#year-input']) { $(selector).min = min; $(selector).max = max; }
     $('#min-year').textContent = min; $('#max-year').textContent = max; $('#mid-year').textContent = Math.round((min + max) / 2);
@@ -98,16 +104,16 @@
     $('#people-list').innerHTML = data.people.map(p => { const at = locationAt(p); let location = at ? at.place : year < p.birth ? 'Ещё не родился / не родилась' : p.death !== null && year > p.death ? 'Жизненный путь завершён' : 'Место пока неизвестно'; return `<button class="person-card ${selected === p.id ? 'is-selected' : ''}" data-person="${esc(p.id)}" aria-pressed="${selected === p.id}"><span class="avatar" aria-hidden="true">${esc(initials(p.name))}</span><span class="person-info"><strong>${esc(p.name)}</strong><small>${esc(lifespan(p))}</small><span class="person-location"><i style="background:${color(p.id)}"></i>${esc(location)}</span></span></button>`; }).join('') || '<p class="empty-state">Добавьте первого родственника в редакторе.</p>';
     if (selected === 'all') { $('#selected-record').innerHTML = '<p class="eyebrow">ВЗГЛЯД НА ВСЮ СЕМЬЮ</p><p>Выберите имя в списке или метку на карте, чтобы увидеть запись о человеке.</p>'; return; }
     const p = person(selected), at = locationAt(p);
-    $('#selected-record').innerHTML = `<h3>${esc(p.name)}</h3>${at ? `<p>${esc(at.place)} · последняя запись: ${at.year}</p><p>${esc(at.note)}</p>${sourceHTML(at)}<p class="field-note">Это последняя известная точка, а не подтверждение непрерывного проживания до выбранного года.</p>` : '<p>На выбранный год нет подходящей записи о месте проживания. Попробуйте изменить год.</p>'}`;
+    $('#selected-record').innerHTML = `<h3>${esc(p.name)}</h3>${p.notes ? `<p>${esc(p.notes)}</p><span class="status-chip">${statusLabels[p.status]}</span>` : ''}${at ? `<p>${esc(at.place)} · последняя запись: ${at.year}</p><p>${esc(at.note)}</p>${sourceHTML(at)}<p class="field-note">Это последняя известная точка, а не подтверждение непрерывного проживания до выбранного года.</p>` : '<p>На выбранный год нет подходящей записи о месте проживания. Попробуйте изменить год.</p>'}`;
   }
   function renderEvents() {
-    const events = data.events.filter(e => e.year <= year && (selected === 'all' || e.personId === selected)).sort((a,b) => b.year - a.year);
+    const events = data.events.filter(e => (e.year === null || e.year <= year) && (selected === 'all' || e.personId === selected)).sort((a,b) => (b.year ?? -Infinity) - (a.year ?? -Infinity));
     $('#event-count').textContent = `${events.length} записей`;
-    $('#event-list').innerHTML = events.map(e => `<article class="event-card"><div class="event-date">${e.year}<span class="status-chip">${typeLabels[e.type]}</span></div><h3>${esc(person(e.personId).name)}</h3><p class="event-place">${esc(e.place)}</p><p class="event-note">${esc(e.note)}</p>${sourceHTML(e)}</article>`).join('') || '<p class="empty-state">К этому году записей пока нет. Передвиньте ползунок или добавьте событие.</p>';
+    $('#event-list').innerHTML = events.map(e => `<article class="event-card"><div class="event-date">${e.year ?? 'Дата неизвестна'}<span class="status-chip">${typeLabels[e.type]}</span></div><h3>${esc(person(e.personId).name)}</h3><p class="event-place">${esc(e.place)}</p><p class="event-note">${esc(e.note)}</p>${sourceHTML(e)}</article>`).join('') || '<p class="empty-state">К этому году записей пока нет. Передвиньте ползунок или добавьте событие.</p>';
   }
   const project = (lon, lat) => [(lon + 180) * 4, (90 - lat) * 4];
   function fitMap() {
-    const events = data.events.filter(e => selected === 'all' || e.personId === selected);
+    const events = data.events.filter(e => Number.isFinite(e.lat) && Number.isFinite(e.lon) && (selected === 'all' || e.personId === selected));
     if (!events.length) { view = { x: 750, y: 95, w: 430, h: 250 }; drawMap(); return; }
     const points = events.map(e => project(e.lon, e.lat));
     const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
@@ -122,11 +128,16 @@
     const unit = Math.max(view.w / (map.clientWidth || 800), view.h / (map.clientHeight || 470));
     const visible = data.people.filter(p => selected === 'all' || p.id === selected);
     const routes = [];
-    for (const p of visible) { const es = eventsFor(p.id).filter(e => e.type !== 'historical' && e.year <= year); const pts = es.map(e => project(e.lon, e.lat)); if (pts.length > 1) routes.push(`<polyline class="route" stroke="${color(p.id)}" points="${pts.map(a => a.join(',')).join(' ')}"/>`); }
+    for (const p of visible) { const es = eventsFor(p.id).filter(e => e.type !== 'historical' && validYear(e.year) && Number.isFinite(e.lat) && Number.isFinite(e.lon) && e.year <= year); const pts = es.map(e => project(e.lon, e.lat)); if (pts.length > 1) routes.push(`<polyline class="route" stroke="${color(p.id)}" points="${pts.map(a => a.join(',')).join(' ')}"/>`); }
     $('#routes-layer').innerHTML = routes.join('');
     const seenPlaces = new Map();
-    for (const p of visible) for (const e of eventsFor(p.id).filter(e => e.type !== 'historical' && e.year <= year)) seenPlaces.set(`${e.lat},${e.lon}`, e);
+    for (const p of visible) for (const e of eventsFor(p.id).filter(e => e.type !== 'historical' && validYear(e.year) && Number.isFinite(e.lat) && Number.isFinite(e.lon) && e.year <= year)) seenPlaces.set(`${e.lat},${e.lon}`, e);
     $('#places-layer').innerHTML = [...seenPlaces.values()].map(e => { const [x,y] = project(e.lon,e.lat); return `<g class="visited-place"><circle cx="${x}" cy="${y}" r="${2.5*unit}"/><text x="${x}" y="${y+16*unit}" font-size="${8.5*unit}" text-anchor="middle">${esc(e.place.length>30?e.place.slice(0,28)+'…':e.place)}</text></g>`; }).join('');
+    if (pageSeed) {
+      const references = new Map();
+      data.events.filter(e => e.year === null && Number.isFinite(e.lat) && Number.isFinite(e.lon) && (selected === 'all' || selected === e.personId)).forEach(e => references.set(`${e.lat},${e.lon}`,e));
+      $('#places-layer').innerHTML += [...references.values()].map(e => { const [x,y] = project(e.lon,e.lat); return `<g class="visited-place reference-place"><title>${esc(e.place)}: географический ориентир без установленной даты; ${esc(e.note)}</title><circle cx="${x}" cy="${y}" r="${4*unit}"/><text x="${x}" y="${y+17*unit}" font-size="${9*unit}" text-anchor="middle">${esc(e.place)} · без даты</text></g>`; }).join('');
+    }
     const clusters = new Map(), markers = [];
     visible.forEach(p => { const e = locationAt(p); if (!e) return; const [x,y] = project(e.lon,e.lat); const key = `${e.lat.toFixed(3)},${e.lon.toFixed(3)}`; if (!clusters.has(key)) clusters.set(key, []); clusters.get(key).push({p,e,x,y}); });
     clusters.forEach(group => group.forEach(({p,e,x,y}, i) => {
@@ -139,34 +150,45 @@
     $('#markers-layer').innerHTML = markers.join('');
   }
   function renderTree() {
+    const branch = $('#branch-filter')?.value;
+    const treePeople = branch && branch !== 'all' ? data.people.filter(p => p.group === branch) : data.people;
+    const treeIds = new Set(treePeople.map(p => p.id));
     const levels = new Map();
     const descendants = new Map();
-    function below(p) { if (descendants.has(p.id)) return descendants.get(p.id); const children = data.people.filter(child => child.parentIds.includes(p.id)); const d = children.length ? Math.max(...children.map(below)) + 1 : 0; descendants.set(p.id, d); return d; }
-    const maxDepth = Math.max(0, ...data.people.map(below));
-    data.people.forEach(p => levels.set(p.id, maxDepth - below(p)));
-    const rows = []; data.people.forEach(p => { const d = levels.get(p.id); (rows[d] ||= []).push(p); });
+    function below(p) { if (descendants.has(p.id)) return descendants.get(p.id); const children = treePeople.filter(child => child.parentIds.includes(p.id)); const d = children.length ? Math.max(...children.map(below)) + 1 : 0; descendants.set(p.id, d); return d; }
+    const maxDepth = Math.max(0, ...treePeople.map(below));
+    treePeople.forEach(p => levels.set(p.id, maxDepth - below(p)));
+    const rows = []; treePeople.forEach(p => { const d = levels.get(p.id); (rows[d] ||= []).push(p); });
     for (let d = 0; d <= maxDepth; d++) rows[d] ||= [];
     const width = Math.max(680, ...rows.map(row => row.length * 200 + 20));
     const height = Math.max(150, rows.length * 155 - 25); const positions = new Map();
     rows.forEach((row,d) => row.forEach((p,i) => positions.set(p.id, { x: width / (row.length + 1) * (i+1)-88, y: d*155 })));
-    const lines = data.people.flatMap(p => p.parentIds.map(parent => { const a=positions.get(parent), b=positions.get(p.id); return `<path d="M${a.x+88} ${a.y+108} V${a.y+130} H${b.x+88} V${b.y}"/>`; })).join('');
+    const lines = treePeople.flatMap(p => p.parentIds.filter(parent => treeIds.has(parent)).map(parent => { const a=positions.get(parent), b=positions.get(p.id); const relation = data.relations?.find(r => r.type === 'parent-child' && r.from === parent && r.to === p.id); return `<path class="relation-${relation?.status || 'documented'}" d="M${a.x+88} ${a.y+108} V${a.y+130} H${b.x+88} V${b.y}"/>`; })).join('');
     const tree = $('#family-tree'); tree.style.width = `${width}px`; tree.style.height = `${height}px`;
-    tree.innerHTML = `<svg class="tree-edges" viewBox="0 0 ${width} ${height}" aria-hidden="true">${lines}</svg>` + data.people.map(p => { const pos=positions.get(p.id); return `<button class="tree-person ${selected===p.id?'is-selected':''}" title="${esc(p.name)}" data-person="${esc(p.id)}" style="left:${pos.x}px;top:${pos.y}px" aria-pressed="${selected===p.id}"><span class="avatar" aria-hidden="true">${esc(initials(p.name))}</span><strong>${esc(p.name)}</strong><small>${esc(lifespan(p))}</small></button>`; }).join('');
-    if (!data.people.length) tree.innerHTML = '<p class="empty-state">Древо появится после добавления родственников.</p>';
+    tree.innerHTML = `<svg class="tree-edges" viewBox="0 0 ${width} ${height}" aria-hidden="true">${lines}</svg>` + treePeople.map(p => { const pos=positions.get(p.id); return `<button class="tree-person ${selected===p.id?'is-selected':''}" title="${esc(p.name)}" data-person="${esc(p.id)}" style="left:${pos.x}px;top:${pos.y}px" aria-pressed="${selected===p.id}"><span class="avatar" aria-hidden="true">${esc(initials(p.name))}</span><strong>${esc(p.name)}</strong><small>${esc(lifespan(p))}</small>${pageSeed ? `<span class="status-chip">${statusLabels[p.status]}</span>` : ''}</button>`; }).join('');
+    if (!treePeople.length) tree.innerHTML = '<p class="empty-state">Древо появится после добавления родственников.</p>';
     $('#book-title').textContent = data.family.title.replace(/^История семьи\s*/i,'Семья ');
   }
   function renderStory() {
     $('#chronicle-title').textContent = selected === 'all' ? 'Семейная летопись' : `История: ${person(selected).name}`;
     $('#story-intro').textContent = data.family.intro;
-    const events = data.events.filter(e => selected === 'all' || e.personId === selected).sort((a,b) => a.year - b.year);
-    $('#chronicle').innerHTML = events.map(e => `<article class="chapter"><div class="chapter-year">${e.year}</div><div class="chapter-body"><p class="chapter-person">${esc(person(e.personId).name)} · ${typeLabels[e.type]}</p><h3>${esc(e.place)}. Новая страница.</h3><p class="prose">${esc(e.note)}</p>${sourceHTML(e)}</div></article>`).join('') || '<p class="empty-state">Здесь начнётся летопись после добавления событий.</p>';
-    renderTree();
+    const events = data.events.filter(e => selected === 'all' || e.personId === selected).sort((a,b) => (a.year ?? Infinity) - (b.year ?? Infinity));
+    $('#chronicle').innerHTML = events.map(e => `<article class="chapter"><div class="chapter-year">${e.year ?? 'Без даты'}</div><div class="chapter-body"><p class="chapter-person">${esc(person(e.personId).name)} · ${typeLabels[e.type]}</p><h3>${esc(e.place)}</h3><p class="prose">${esc(e.note)}</p>${sourceHTML(e)}</div></article>`).join('') || '<p class="empty-state">Здесь начнётся летопись после добавления событий.</p>';
+    renderTree(); renderRelations();
+  }
+  function renderRelations() {
+    const target = $('#research-relations'); if (!target) return;
+    const names = { 'parent-child': 'родитель → ребёнок', spouse: 'супруги', sibling: 'брат / сестра', identity: 'возможное тождество', 'possible-relative': 'возможное родство', 'grandparent-grandchild': 'бабушка / дедушка → внук' };
+    const relations = (data.relations || []).filter(r => selected === 'all' || r.from === selected || r.to === selected);
+    target.innerHTML = '<p class="eyebrow">ОСНОВАНИЯ И ГРАНИЦЫ ВЫВОДОВ</p><h2>Родственные связи</h2><p class="field-note">Документ — одна запись, а не независимое подтверждение. Семейные сведения и гипотезы показаны пунктиром. Одноимённые кандидаты не объединены.</p><div class="relation-list">' + relations.map(r => `<article class="relation-card relation-${r.status}"><h3>${esc(person(r.from).name)} ↔ ${esc(person(r.to).name)}</h3><p>${names[r.type]} · <strong>${statusLabels[r.status]}</strong></p><p>${esc(r.source)}</p></article>`).join('') + '</div>';
   }
   function renderYear() { $('#year-range').value = year; $('#year-input').value = year; $('#year-label').textContent = year; $('#map-year').textContent = year; renderPeople(); renderEvents(); drawMap(); }
   function renderAll({ fit = false } = {}) { const [min,max]=bounds(); year=Math.min(max,Math.max(min,year)); if(selected !== 'all' && !person(selected)) selected='all'; renderHeader(); renderYear(); renderStory(); fillEditor(); if(fit) fitMap(); }
   function choosePerson(personId) {
     const focusedContainer = document.activeElement?.closest('#people-list, #family-tree, #markers-layer');
-    selected = personId; $('#person-filter').value=selected; renderYear(); renderStory();
+    selected = personId;
+    if (pageSeed && selected !== 'all' && $('#branch-filter') && person(selected).group) $('#branch-filter').value = person(selected).group;
+    $('#person-filter').value=selected; renderYear(); renderStory();
     if (focusedContainer) [...focusedContainer.querySelectorAll('[data-person]')].find(el => el.dataset.person === personId)?.focus({ preventScroll: true });
   }
   function stopPlayback() { clearInterval(playback); playback=null; $('#play').textContent='▶'; $('#play').setAttribute('aria-label','Воспроизвести временную шкалу'); }
@@ -209,9 +231,9 @@
   function openEditor(){stopPlayback();fillEditor();editorMessage('');$('#editor').showModal();}
   $('#open-editor').addEventListener('click',openEditor);$('#close-editor').addEventListener('click',()=>$('#editor').close());$('#add-story-event').addEventListener('click',()=>{openEditor();$('#event-form').scrollIntoView({block:'start'});});
   function commit(next,message,fit=false) { try {data=validate(next);save();renderAll({fit});editorMessage(message);return true;}catch(e){editorMessage(e.message,true);return false;} }
-  $('#family-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),next=clone(data);next.family={title:String(f.get('title')).trim(),intro:String(f.get('intro')).trim(),demo:f.get('demo')==='on'};commit(next,'Сведения о семье сохранены.');});
-  $('#person-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),next=clone(data);next.people.push({id:id(),name:String(f.get('name')).trim(),birth:Number(f.get('birth')),death:f.get('death')===''?null:Number(f.get('death')),parentIds:[f.get('parent1'),f.get('parent2')].filter(Boolean)});if(commit(next,'Родственник добавлен. Теперь внесите запись о его месте проживания.'))e.target.reset();});
-  $('#event-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),next=clone(data);const event={id:id(),personId:f.get('personId'),year:Number(f.get('year')),type:f.get('type'),place:String(f.get('place')).trim(),lat:Number(f.get('lat')),lon:Number(f.get('lon')),note:String(f.get('note')).trim(),source:String(f.get('source')).trim(),url:String(f.get('url')).trim(),status:f.get('status')};next.events.push(event);const oldYear=year;year=event.year;if(!commit(next,'Событие добавлено в карту и летопись.',true))year=oldYear;else{e.target.reset();fillEditor();}});
+  $('#family-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),next=clone(data);next.family={...next.family,title:String(f.get('title')).trim(),intro:String(f.get('intro')).trim(),demo:f.get('demo')==='on'};commit(next,'Сведения о семье сохранены.');});
+  $('#person-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),next=clone(data);next.people.push({id:id(),name:String(f.get('name')).trim(),birth:f.get('birth')===''?null:Number(f.get('birth')),death:f.get('death')===''?null:Number(f.get('death')),parentIds:[f.get('parent1'),f.get('parent2')].filter(Boolean)});if(commit(next,'Родственник добавлен. Теперь внесите запись о его месте проживания.'))e.target.reset();});
+  $('#event-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),next=clone(data);const event={id:id(),personId:f.get('personId'),year:f.get('year')===''?null:Number(f.get('year')),type:f.get('type'),place:String(f.get('place')).trim(),lat:f.get('lat')===''?null:Number(f.get('lat')),lon:f.get('lon')===''?null:Number(f.get('lon')),note:String(f.get('note')).trim(),source:String(f.get('source')).trim(),url:String(f.get('url')).trim(),status:f.get('status')};next.events.push(event);const oldYear=year;if(validYear(event.year))year=event.year;if(!commit(next,'Событие добавлено в карту и летопись.',true))year=oldYear;else{e.target.reset();fillEditor();}});
   function download() {const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='arhived-family.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('JSON подготовлен для скачивания.');}
   $('#export-data').addEventListener('click',download);$('#download-editor').addEventListener('click',download);
   $('#import-file').addEventListener('change',async e=>{pendingImport=null;$('#import-preview').hidden=true;const file=e.target.files[0];if(!file)return;try{if(file.size>1024*1024)throw Error('Файл превышает 1 МБ.');const raw=JSON.parse(await file.text());pendingImport=validate(raw);$('#import-summary').textContent=`Загрузить «${pendingImport.family.title}»? ${pendingImport.people.length} человек, ${pendingImport.events.length} событий. Текущие данные будут заменены.`;$('#import-preview').hidden=false;editorMessage('Файл проверен. Подтвердите замену данных ниже.');}catch(error){editorMessage(error instanceof SyntaxError?'Не удалось прочитать JSON. Проверьте формат файла.':error.message,true);}});
@@ -219,7 +241,9 @@
   $('#confirm-import').addEventListener('click',()=>{if(!pendingImport)return;stopPlayback();selected='all';if(commit(pendingImport,'Данные семьи загружены.',true)){pendingImport=null;$('#import-preview').hidden=true;$('#import-file').value='';}});
   function replaceFamily(next){if(!window.confirm('Заменить текущую семью? Несохранённые в JSON сведения будут удалены из этого браузера.'))return;stopPlayback();selected='all';pendingImport=null;$('#import-preview').hidden=true;$('#import-file').value='';commit(next,'Семья заменена.',true);}
   $('#new-family').addEventListener('click',()=>replaceFamily({version:1,family:{title:'История моей семьи',intro:'',demo:false},people:[],events:[]}));
-  $('#restore-demo').addEventListener('click',()=>replaceFamily(clone(demo)));
+  $('#restore-demo').addEventListener('click',()=>replaceFamily(clone(pageSeed || demo)));
+  $('#branch-filter')?.addEventListener('change', renderTree);
   renderAll({fit:true});initializeGrid();
+  if (pageSeed) { $('#data-notice p').textContent = 'Частный отчёт на 06.11.2026. Статусы — по отчёту и уточнению владельца; оригиналы отдельно не перепроверялись.'; }
   if(initialWarning){$('#save-state').textContent=initialWarning;toast(initialWarning);}else if(!storageAvailable)$('#save-state').textContent='Используйте экспорт JSON для сохранения';
 })();
