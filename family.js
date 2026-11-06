@@ -53,7 +53,9 @@
     const people = raw.people.map(p => {
       if (!p || (p.birth !== null && !validYear(p.birth)) || (p.death !== null && (!validYear(p.death) || (p.birth !== null && p.death < p.birth)))) throw Error('Проверьте годы жизни родственника. Для неизвестного года рождения или смерти используйте null.');
       if (!Array.isArray(p.parentIds) || p.parentIds.length > 2 || p.parentIds.some(x => typeof x !== 'string') || new Set(p.parentIds).size !== p.parentIds.length) throw Error('Укажите до двух разных родителей в parentIds.');
-      return { id: textField(p.id, 'ID человека', 100), name: textField(p.name, 'Имя', 120), birth: p.birth, death: p.death, parentIds: [...p.parentIds], status: Object.hasOwn(statusLabels, p.status) ? p.status : 'documented', notes: textField(p.notes ?? '', 'Примечание', 5000, false), group: textField(p.group ?? '', 'Ветвь', 100, false) };
+      const birthDate = p.birthDate ?? '';
+      if (birthDate && (typeof birthDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || !Number.isFinite(Date.parse(birthDate + 'T00:00:00Z')) || new Date(birthDate + 'T00:00:00Z').toISOString().slice(0,10) !== birthDate || Number(birthDate.slice(0,4)) !== p.birth)) throw Error('Точная дата рождения должна существовать и соответствовать году рождения.');
+      return { id: textField(p.id, 'ID человека', 100), name: textField(p.name, 'Имя', 120), birth: p.birth, ...(birthDate ? { birthDate } : {}), death: p.death, parentIds: [...p.parentIds], status: Object.hasOwn(statusLabels, p.status) ? p.status : 'documented', notes: textField(p.notes ?? '', 'Примечание', 5000, false), group: textField(p.group ?? '', 'Ветвь', 100, false) };
     });
     const personMap = new Map(people.map(p => [p.id, p]));
     if (personMap.size !== people.length) throw Error('ID родственников должны быть уникальными.');
@@ -85,7 +87,7 @@
   const color = personId => colors[Math.max(0, data.people.findIndex(p => p.id === personId)) % colors.length];
   const eventsFor = personId => data.events.filter(e => e.personId === personId).sort((a, b) => a.year - b.year);
   const initials = name => name.split(/\s+/).slice(0, 2).map(x => [...x][0] || '').join('');
-  const lifespan = p => `${p.birth ?? 'Рождение: неизвестно'} — ${p.death ?? 'смерть: неизвестно'}`;
+  const lifespan = p => `${p.birthDate ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(p.birthDate + 'T00:00:00Z')) : p.birth ?? 'Рождение: неизвестно'} — ${p.death ?? 'смерть: неизвестно'}`;
   function bounds() { const years = [...data.people.flatMap(p => [p.birth, ...(p.death === null ? [] : [p.death])]), ...data.events.map(e => e.year), ...(data.family.asOfYear ? [data.family.asOfYear] : [])].filter(validYear); return years.length ? [Math.min(...years), Math.max(...years)] : [1900, new Date().getFullYear()]; }
   function toast(message) { $('#toast').textContent = message; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('#toast').textContent = ''; }, 4500); }
   function save() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); storageAvailable = true; $('#save-state').textContent = 'Сохранено в этом браузере'; } catch { storageAvailable = false; $('#save-state').textContent = 'Локальное сохранение недоступно — экспортируйте JSON'; toast('Изменения работают в текущей вкладке. Для сохранения скачайте JSON.'); } }
