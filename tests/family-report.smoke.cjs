@@ -13,6 +13,10 @@ const filename='family-melkov-20261106.html';
   const html=fs.readFileSync(path.join(root,filename),'utf8').replace(/<script[^>]+src="family.js"[^>]*><\/script>/,'');
   const dataset=JSON.parse(html.match(/<script id="family-data" type="application\/json">([\s\S]*?)<\/script>/)[1]);
   assert.equal(dataset.people.length,64);
+  const candidates=dataset.people.filter(person=>person.status==='hypothesis');
+  for(const candidate of candidates){assert(candidate.birthPlace&&candidate.residencePlace&&candidate.geographyBasis);assert.equal(candidate.geographyStatus,'hypothesis');}
+  for(const id of ['P-0002','P-0003']){const parent=dataset.people.find(person=>person.id===id);assert.equal(parent.birthPlace,'Томск');assert.match(parent.residencePlace,/Томск/);assert.equal(parent.birth,null,'Do not invent birth years');assert.equal(parent.geographyStatus,'family');}
+
   const alex=dataset.people.find(person=>person.id==='P-0001');
   assert.equal(alex.birthDate,'1992-09-18');
   assert(!dataset.people.some(person=>person.id==='P-0007'));
@@ -30,10 +34,16 @@ const filename='family-melkov-20261106.html';
   await p.setContent(html);await p.addStyleTag({content:fs.readFileSync(path.join(root,'family.css'),'utf8')});await p.addScriptTag({content:fs.readFileSync(path.join(root,'family.js'),'utf8')});
   assert.deepEqual(errors,[]);
   assert.equal(await p.locator('.person-card').count(),64);
+  assert.equal(await p.locator('.geography-card').count(),candidates.length+2);
+  await p.locator('.report-geography summary').click();
+  await p.locator('#person-filter').selectOption('P-0002');
+  assert.match(await p.locator('#selected-record .person-geography').textContent(),/Томск/);
+  await p.locator('#person-filter').selectOption('all');
+
   assert.match(await p.locator('.person-card[data-person="P-0001"]').textContent(),/18 сентября 1992/);
   assert.equal(await p.locator('#year-range').inputValue(),'2026');
   assert.equal(await p.locator('.person-marker').count(),1);
-  assert.equal(await p.locator('.reference-place').count(),2);
+  assert.equal(await p.locator('.reference-place').count(),3);
   assert.equal(await p.locator('.route').count(),0);
   assert.equal(await p.locator('#land-layer path').count(),177);
   for(const bot of ['robots','googlebot','yandex'])assert.match(await p.locator(`meta[name=${bot}]`).getAttribute('content'),/noindex/);

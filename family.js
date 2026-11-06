@@ -55,7 +55,7 @@
       if (!Array.isArray(p.parentIds) || p.parentIds.length > 2 || p.parentIds.some(x => typeof x !== 'string') || new Set(p.parentIds).size !== p.parentIds.length) throw Error('Укажите до двух разных родителей в parentIds.');
       const birthDate = p.birthDate ?? '';
       if (birthDate && (typeof birthDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || !Number.isFinite(Date.parse(birthDate + 'T00:00:00Z')) || new Date(birthDate + 'T00:00:00Z').toISOString().slice(0,10) !== birthDate || Number(birthDate.slice(0,4)) !== p.birth)) throw Error('Точная дата рождения должна существовать и соответствовать году рождения.');
-      return { id: textField(p.id, 'ID человека', 100), name: textField(p.name, 'Имя', 120), birth: p.birth, ...(birthDate ? { birthDate } : {}), death: p.death, parentIds: [...p.parentIds], status: Object.hasOwn(statusLabels, p.status) ? p.status : 'documented', notes: textField(p.notes ?? '', 'Примечание', 5000, false), group: textField(p.group ?? '', 'Ветвь', 100, false) };
+      return { id: textField(p.id, 'ID человека', 100), name: textField(p.name, 'Имя', 120), birth: p.birth, ...(birthDate ? { birthDate } : {}), death: p.death, parentIds: [...p.parentIds], status: Object.hasOwn(statusLabels, p.status) ? p.status : 'documented', notes: textField(p.notes ?? '', 'Примечание', 5000, false), group: textField(p.group ?? '', 'Ветвь', 100, false), birthPlace: textField(p.birthPlace ?? '', 'Место рождения', 500, false), residencePlace: textField(p.residencePlace ?? '', 'Места жизни', 500, false), geographyBasis: textField(p.geographyBasis ?? '', 'Основание географии', 3000, false), geographyStatus: Object.hasOwn(statusLabels, p.geographyStatus) ? p.geographyStatus : 'hypothesis' };
     });
     const personMap = new Map(people.map(p => [p.id, p]));
     if (personMap.size !== people.length) throw Error('ID родственников должны быть уникальными.');
@@ -101,12 +101,20 @@
     for (const selector of ['#year-range', '#year-input']) { $(selector).min = min; $(selector).max = max; }
     $('#min-year').textContent = min; $('#max-year').textContent = max; $('#mid-year').textContent = Math.round((min + max) / 2);
   }
+  function geographyHTML(p) {
+    if (!p.birthPlace && !p.residencePlace) return '';
+    return `<div class="person-geography"><span class="status-chip ${p.geographyStatus === 'hypothesis' ? 'hypothesis' : ''}">${statusLabels[p.geographyStatus]}</span><dl><dt>Место рождения</dt><dd>${esc(p.birthPlace || 'Не установлено')}</dd><dt>Места жизни</dt><dd>${esc(p.residencePlace || 'Не установлено')}</dd></dl><p class="field-note">${esc(p.geographyBasis)}</p></div>`;
+  }
+  function renderGeography() {
+    const target = $('#geography-profiles'); if (!target) return;
+    target.innerHTML = data.people.filter(p => p.birthPlace || p.residencePlace).map(p => `<article class="geography-card"><h3>${esc(p.name)}</h3>${geographyHTML(p)}</article>`).join('');
+  }
   function renderPeople() {
     $('#people-count').textContent = `${data.people.length} человек`;
-    $('#people-list').innerHTML = data.people.map(p => { const at = locationAt(p); let location = at ? at.place : year < p.birth ? 'Ещё не родился / не родилась' : p.death !== null && year > p.death ? 'Жизненный путь завершён' : 'Место пока неизвестно'; return `<button class="person-card ${selected === p.id ? 'is-selected' : ''}" data-person="${esc(p.id)}" aria-pressed="${selected === p.id}"><span class="avatar" aria-hidden="true">${esc(initials(p.name))}</span><span class="person-info"><strong>${esc(p.name)}</strong><small>${esc(lifespan(p))}</small><span class="person-location"><i style="background:${color(p.id)}"></i>${esc(location)}</span></span></button>`; }).join('') || '<p class="empty-state">Добавьте первого родственника в редакторе.</p>';
+    $('#people-list').innerHTML = data.people.map(p => { const at = locationAt(p); let location = at ? at.place : year < p.birth ? 'Ещё не родился / не родилась' : p.death !== null && year > p.death ? 'Жизненный путь завершён' : p.residencePlace ? `${p.geographyStatus === 'hypothesis' ? 'Ориентир' : 'Без даты'}: ${p.residencePlace}` : 'Место пока неизвестно'; return `<button class="person-card ${selected === p.id ? 'is-selected' : ''}" data-person="${esc(p.id)}" aria-pressed="${selected === p.id}"><span class="avatar" aria-hidden="true">${esc(initials(p.name))}</span><span class="person-info"><strong>${esc(p.name)}</strong><small>${esc(lifespan(p))}</small><span class="person-location"><i style="background:${color(p.id)}"></i>${esc(location)}</span></span></button>`; }).join('') || '<p class="empty-state">Добавьте первого родственника в редакторе.</p>';
     if (selected === 'all') { $('#selected-record').innerHTML = '<p class="eyebrow">ВЗГЛЯД НА ВСЮ СЕМЬЮ</p><p>Выберите имя в списке или метку на карте, чтобы увидеть запись о человеке.</p>'; return; }
     const p = person(selected), at = locationAt(p);
-    $('#selected-record').innerHTML = `<h3>${esc(p.name)}</h3>${p.notes ? `<p>${esc(p.notes)}</p><span class="status-chip">${statusLabels[p.status]}</span>` : ''}${at ? `<p>${esc(at.place)} · последняя запись: ${at.year}</p><p>${esc(at.note)}</p>${sourceHTML(at)}<p class="field-note">Это последняя известная точка, а не подтверждение непрерывного проживания до выбранного года.</p>` : '<p>На выбранный год нет подходящей записи о месте проживания. Попробуйте изменить год.</p>'}`;
+    $('#selected-record').innerHTML = `<h3>${esc(p.name)}</h3>${geographyHTML(p)}${p.notes ? `<p>${esc(p.notes)}</p><span class="status-chip">${statusLabels[p.status]}</span>` : ''}${at ? `<p>${esc(at.place)} · последняя запись: ${at.year}</p><p>${esc(at.note)}</p>${sourceHTML(at)}<p class="field-note">Это последняя известная точка, а не подтверждение непрерывного проживания до выбранного года.</p>` : '<p>На выбранный год нет подходящей записи о месте проживания. Попробуйте изменить год.</p>'}`;
   }
   function renderEvents() {
     const events = data.events.filter(e => (e.year === null || e.year <= year) && (selected === 'all' || e.personId === selected)).sort((a,b) => (b.year ?? -Infinity) - (a.year ?? -Infinity));
@@ -185,7 +193,7 @@
     target.innerHTML = '<p class="eyebrow">ОСНОВАНИЯ И ГРАНИЦЫ ВЫВОДОВ</p><h2>Родственные связи</h2><p class="field-note">Документ — одна запись, а не независимое подтверждение. Семейные сведения и гипотезы показаны пунктиром. Одноимённые кандидаты не объединены.</p><div class="relation-list">' + relations.map(r => `<article class="relation-card relation-${r.status}"><h3>${esc(person(r.from).name)} ↔ ${esc(person(r.to).name)}</h3><p>${names[r.type]} · <strong>${statusLabels[r.status]}</strong></p><p>${esc(r.source)}</p></article>`).join('') + '</div>';
   }
   function renderYear() { $('#year-range').value = year; $('#year-input').value = year; $('#year-label').textContent = year; $('#map-year').textContent = year; renderPeople(); renderEvents(); drawMap(); }
-  function renderAll({ fit = false } = {}) { const [min,max]=bounds(); year=Math.min(max,Math.max(min,year)); if(selected !== 'all' && !person(selected)) selected='all'; renderHeader(); renderYear(); renderStory(); fillEditor(); if(fit) fitMap(); }
+  function renderAll({ fit = false } = {}) { const [min,max]=bounds(); year=Math.min(max,Math.max(min,year)); if(selected !== 'all' && !person(selected)) selected='all'; renderHeader(); renderYear(); renderStory(); renderGeography(); fillEditor(); if(fit) fitMap(); }
   function choosePerson(personId) {
     const focusedContainer = document.activeElement?.closest('#people-list, #family-tree, #markers-layer');
     selected = personId;
