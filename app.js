@@ -26,8 +26,8 @@ const leadForm = document.querySelector('#lead-form');
 const leadStatus = document.querySelector('#form-status');
 const submitButton = leadForm.querySelector('button[type="submit"]');
 const leadConfig = window.ARHIVED_LEAD_FORM;
-const fieldNames = ['name', 'contacts', 'research'];
-const configured = leadConfig && fieldNames.every(name => /^entry\.\d+$/.test(leadConfig.fields?.[name])) && new Set(Object.values(leadConfig.fields)).size === 3;
+const fieldNames = ['name', 'phone', 'email', 'research'];
+const configured = leadConfig && fieldNames.every(name => /^entry\.\d+$/.test(leadConfig.fields?.[name])) && new Set(fieldNames.map(name => leadConfig.fields[name])).size === fieldNames.length;
 let submitting = false;
 if (!configured) {
   submitButton.disabled = true;
@@ -44,6 +44,10 @@ leadForm.addEventListener('submit', async event => {
     const field = leadForm.elements[name];
     values[name] = field.value.trim();
     field.setCustomValidity(values[name] ? '' : 'Пожалуйста, заполните это поле.');
+  }
+  if (values.phone) {
+    const digits = values.phone.replace(/\D/g, '');
+    leadForm.elements.phone.setCustomValidity(/^[+\d\s().-]+$/.test(values.phone) && digits.length >= 7 && digits.length <= 15 ? '' : 'Укажите номер телефона: от 7 до 15 цифр. Можно использовать +, пробелы, скобки и дефисы.');
   }
   if (!leadForm.reportValidity()) return;
   const body = new URLSearchParams();
